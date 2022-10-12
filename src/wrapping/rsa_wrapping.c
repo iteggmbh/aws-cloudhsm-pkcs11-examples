@@ -74,6 +74,7 @@ CK_RV generate_wrapping_keypair(CK_SESSION_HANDLE session,
     CK_ATTRIBUTE private_key_template[] = {
             {CKA_TOKEN,       &true_val, sizeof(CK_BBOOL)},
             {CKA_UNWRAP,      &true_val, sizeof(CK_BBOOL)},
+            {CKA_DECRYPT,     &true_val, sizeof(CK_BBOOL)},
     };
 
     rv = funcs->C_GenerateKeyPair(session,
@@ -182,6 +183,43 @@ CK_RV rsa_oaep_unwrap_key(
             template,
             template_count,
             unwrapped_key_handle);
+}
+
+/**
+ * Decrypt a previously wrapped key into the HSM.
+ * This demonstrates how to use the OAEP decrypt mechanism.
+ * @param session
+ * @param wrapping_key
+ * @param wrapped_key_type
+ * @param wrapped_bytes
+ * @param wrapped_bytes_len
+ * @param unwrapped_key_handle
+ * @return
+ */
+CK_RV rsa_oaep_decrypt_key(
+        CK_SESSION_HANDLE session,
+        CK_OBJECT_HANDLE wrapping_key,
+        CK_BYTE_PTR wrapped_bytes,
+        CK_ULONG wrapped_bytes_len,
+        CK_BYTE_PTR decrypted_bytes,
+	CK_ULONG_PTR decrypted_bytes_len) {
+
+    CK_RSA_PKCS_OAEP_PARAMS params = { CKM_SHA256, CKG_MGF1_SHA256  };
+    CK_MECHANISM oaep_mech = {CKM_RSA_PKCS_OAEP, &params, sizeof(params)};
+
+    CK_RV rv = funcs->C_DecryptInit(session,&oaep_mech,wrapping_key);
+
+    if (rv != CKR_OK) {
+        fprintf(stderr, "RSA C_DecryptInit failed: %lu\n", rv);
+	return rv;
+    }
+
+    return funcs->C_Decrypt(
+            session,
+            wrapped_bytes,
+            wrapped_bytes_len,
+            decrypted_bytes,
+            decrypted_bytes_len);
 }
 
 /**
@@ -296,6 +334,7 @@ CK_RV rsa_aes_unwrap_key(
 CK_RV rsa_oaep_wrap(CK_SESSION_HANDLE session) {
     unsigned char *hex_array = NULL;
     CK_BYTE_PTR wrapped_key = NULL;
+    CK_BYTE_PTR decrypted_key = NULL;
     CK_OBJECT_HANDLE rsa_public_key = CK_INVALID_HANDLE;
     CK_OBJECT_HANDLE rsa_private_key = CK_INVALID_HANDLE;
 
@@ -308,7 +347,7 @@ CK_RV rsa_oaep_wrap(CK_SESSION_HANDLE session) {
     }
 
     // Generate keys to be wrapped.
-    rv = generate_wrapping_keypair(session, 2048, &rsa_public_key, &rsa_private_key);
+    rv = generate_wrapping_keypair(session, 3072, &rsa_public_key, &rsa_private_key);
     if (rv != CKR_OK) {
         fprintf(stderr, "RSA key generation failed: %lu\n", rv);
         goto done;
@@ -351,9 +390,37 @@ CK_RV rsa_oaep_wrap(CK_SESSION_HANDLE session) {
     }
     printf("Unwrapped bytes as object %lu\n", unwrapped_handle);
 
+    CK_ULONG decrypted_key_len = wrapped_len;
+
+    decrypted_key = malloc(decrypted_key_len);
+    if (NULL == decrypted_key) {
+        fprintf(stderr, "Could not allocate memory to hold decrypted key\n");
+        goto done;
+    }
+
+    rv = rsa_oaep_decrypt_key(session, rsa_private_key, wrapped_key, wrapped_len, decrypted_key, &decrypted_key_len);
+    if (rv != CKR_OK) {
+        fprintf(stderr, "Could not decrypt key: %lu\n", rv);
+        goto done;
+    }
+
+    free(hex_array);
+    hex_array = NULL;
+
+    bytes_to_new_hexstring(decrypted_key, decrypted_key_len, &hex_array);
+    if (!hex_array) {
+        fprintf(stderr, "Could not allocate hex array\n");
+        goto done;
+    }
+    printf("Decrypted key: %s\n", hex_array);
+
     done:
     if (NULL != wrapped_key) {
         free(wrapped_key);
+    }
+
+    if (NULL != decrypted_key) {
+        free(decrypted_key);
     }
 
     if (NULL != hex_array) {

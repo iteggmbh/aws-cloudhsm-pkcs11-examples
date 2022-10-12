@@ -163,6 +163,8 @@ CK_RV pkcs11_open_session(const CK_UTF8CHAR_PTR pin, CK_SESSION_HANDLE_PTR sessi
         return rv;
     }
 
+    printf("Opening session for slot ID %lu\n", slot_id);
+
     rv = funcs->C_OpenSession(slot_id, CKF_SERIAL_SESSION | CKF_RW_SESSION,
                               NULL, NULL, session);
     if (rv != CKR_OK) {
