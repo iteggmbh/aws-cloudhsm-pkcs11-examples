@@ -55,7 +55,7 @@ CK_RV find_des_key(CK_SESSION_HANDLE session,
     print_bytes_as_hex(object_id, object_id_length);
 
     CK_ATTRIBUTE attr[] = {
-        {CKA_OBJECT_ID, object_id, object_id_length},
+        {CKA_ID, object_id, object_id_length},
     };
 
     rv = funcs->C_FindObjectsInit(session, attr, 1);
@@ -81,7 +81,7 @@ CK_RV find_des_key(CK_SESSION_HANDLE session,
         return rv;
     }
 
-    if (found == 1) {
+    if (found != 1) {
         fprintf(stderr, "Object ID not found.\n");
         key = CK_INVALID_HANDLE;
         rv = CKR_OBJECT_HANDLE_INVALID;
@@ -253,7 +253,7 @@ int main(int argc, char **argv) {
 
     if (argv[2] != NULL) {
 
-         object_id_len = hexstring_to_new_bytes(argv[1],&object_id);
+         object_id_len = hexstring_to_new_bytes(argv[2],&object_id);
 
         if (plaintext_len < 0) {
             fprintf(stderr, "Invalid object_id HEX string [%s] given\n",argv[2]);
