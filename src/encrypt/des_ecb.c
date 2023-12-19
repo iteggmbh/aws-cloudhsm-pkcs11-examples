@@ -45,27 +45,86 @@ CK_RV generate_des_key(CK_SESSION_HANDLE session,
     return funcs->C_GenerateKey(session, &mech, template, sizeof(template) / sizeof(CK_ATTRIBUTE), key);
 }
 
+CK_RV find_des_key(CK_SESSION_HANDLE session,
+                   CK_BYTE_PTR object_id,
+                   CK_ULONG object_id_length,
+                   CK_OBJECT_HANDLE_PTR key) {
+    CK_RV rv;
+
+    printf("Searching Object ID: ");
+    print_bytes_as_hex(object_id, object_id_length);
+
+    CK_ATTRIBUTE attr[] = {
+        {CKA_OBJECT_ID, object_id, object_id_length},
+    };
+
+    rv = funcs->C_FindObjectsInit(session, attr, 1);
+
+    if (rv != CKR_OK) {
+        fprintf(stderr, "Can't initialize search\n");
+        return rv;
+    }
+
+    CK_ULONG found = 0;
+
+    rv = funcs->C_FindObjects(session, key, 1, &found);
+
+    if (rv != CKR_OK) {
+        fprintf(stderr, "FindObjects failed\n");
+        return rv;
+    }
+
+    rv = funcs->C_FindObjectsFinal(session);
+
+    if (rv != CKR_OK) {
+        fprintf(stderr, "Can't finalize search\n");
+        return rv;
+    }
+
+    if (found == 1) {
+        fprintf(stderr, "Object ID not found.\n");
+        key = CK_INVALID_HANDLE;
+        rv = CKR_OBJECT_HANDLE_INVALID;
+    }
+
+    return rv;
+}
+
 /**
  * Encrypt and decrypt a string using DES ECB.
  * @param session Active PKCS#11 session
  */
-CK_RV des_ecb_sample(CK_SESSION_HANDLE session) {
+CK_RV des_ecb_sample(CK_SESSION_HANDLE session,
+                     CK_BYTE_PTR plaintext,
+                     CK_ULONG plaintext_length,
+                     CK_BYTE_PTR object_id,
+                     CK_ULONG object_id_length
+                     ) {
     CK_RV rv;
     CK_BYTE_PTR decrypted_ciphertext = NULL;
 
-    // Generate a DES key.
+    // Find or Generate a DES key.
     CK_OBJECT_HANDLE des_key;
-    rv = generate_des_key(session, &des_key);
-    if (CKR_OK != rv) {
-        fprintf(stderr, "DES key generation failed: %lu\n", rv);
-        return rv;
+
+    if (object_id && object_id_length) {
+        rv =find_des_key(session,object_id,object_id_length,&des_key);
+        if (CKR_OK != rv) {
+            fprintf(stderr, "Search for DES key failed: %lu\n", rv);
+            return rv;
+        }
+    }
+    else {
+        rv = generate_des_key(session, &des_key);
+        if (CKR_OK != rv) {
+            fprintf(stderr, "DES key generation failed: %lu\n", rv);
+            return rv;
+        }
     }
 
-    CK_BYTE_PTR plaintext = "Data must be a 16 byte multiple.";
-    CK_ULONG plaintext_length = (CK_ULONG) strlen(plaintext);
     CK_ULONG ciphertext_length = 0;
 
-    printf("Plaintext: %s\n", plaintext);
+    printf("Plaintext: ");
+    print_bytes_as_hex(plaintext, plaintext_length);
     printf("Plaintext length: %lu\n", plaintext_length);
 
     // Prepare the mechanism
@@ -110,7 +169,7 @@ CK_RV des_ecb_sample(CK_SESSION_HANDLE session) {
 
     //**********************************************************************************************
     // Decrypt
-    //********************************************************************************************** 
+    //**********************************************************************************************
 
     rv = funcs->C_DecryptInit(session, &mech, des_key);
     if (CKR_OK != rv) {
@@ -142,7 +201,8 @@ CK_RV des_ecb_sample(CK_SESSION_HANDLE session) {
     }
     decrypted_ciphertext[decrypted_ciphertext_length] = 0; // Turn the chars into a C-String via null termination
 
-    printf("Decrypted ciphertext: %s\n", decrypted_ciphertext);
+    printf("Decrypted ciphertext: ");
+    print_bytes_as_hex(decrypted_ciphertext, decrypted_ciphertext_length);
     printf("Decrypted ciphertext length: %lu\n", decrypted_ciphertext_length);
 
 done:
@@ -160,6 +220,10 @@ int main(int argc, char **argv) {
     CK_RV rv;
     CK_SESSION_HANDLE session;
     int rc = EXIT_FAILURE;
+    unsigned char *object_id = NULL;
+    ssize_t object_id_len = 0;
+    unsigned char *plaintext = NULL;
+    ssize_t plaintext_len = 0;
 
     struct pkcs_arguments args = {0};
     if (get_pkcs_args(argc, argv, &args) < 0) {
@@ -175,14 +239,50 @@ int main(int argc, char **argv) {
         return rc;
     }
 
-    printf("\nEncrypt/Decrypt with DES ECB\n");
-    rv = des_ecb_sample(session);
-    if (CKR_OK != rv) {
-        fprintf(stderr, "Failed des_ecb sample with rv=%lu\n", rv);
-        return rc;
+    if (argv[1] == NULL) {
+        fprintf(stderr, "No plaintext HEX string given\n");
+        goto error;
     }
 
-    pkcs11_finalize_session(session);
+    plaintext_len = hexstring_to_new_bytes(argv[1],&plaintext);
 
-    return EXIT_SUCCESS;
+    if (plaintext_len < 0) {
+        fprintf(stderr, "Invalid plaintext HEX string [%s] given\n",argv[1]);
+        goto error;
+    }
+
+    if (argv[2] != NULL) {
+
+         object_id_len = hexstring_to_new_bytes(argv[1],&object_id);
+
+        if (plaintext_len < 0) {
+            fprintf(stderr, "Invalid object_id HEX string [%s] given\n",argv[2]);
+            goto error;
+        }
+
+        if (argv[3] != NULL) {
+            fprintf(stderr, "Extra arguments after object_id given\n");
+            goto error;
+        }
+    }
+
+    printf("\nEncrypt/Decrypt with DES ECB\n");
+    rv = des_ecb_sample(session,plaintext,plaintext_len,object_id,object_id_len);
+    if (CKR_OK == rv) {
+        rc = EXIT_SUCCESS;
+    }
+    else {
+        fprintf(stderr, "Failed des_ecb sample with rv=%lu\n", rv);
+    }
+
+error:
+    pkcs11_finalize_session(session);
+    if (object_id) {
+      free(object_id);
+    }
+    if (plaintext) {
+      free(plaintext);
+    }
+
+    return rc;
 }

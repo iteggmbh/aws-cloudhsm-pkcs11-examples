@@ -107,6 +107,7 @@ int bytes_to_new_hexstring(char *bytes, size_t bytes_len, unsigned char **hex_ar
     if (!tmp) {
         if (*hex_array) {
             free(*hex_array);
+            *hex_array = NULL;
         }
         return -1;
     }
@@ -120,6 +121,72 @@ int bytes_to_new_hexstring(char *bytes, size_t bytes_len, unsigned char **hex_ar
     }
 
     return 0;
+}
+
+static int hex_digit_value(char digit) {
+
+  if (digit >= '0' && digit <= '9') {
+    return digit - '0';
+  }
+  else if (digit >= 'a' && digit <= 'f') {
+    return digit - 'a' + 10;
+  }
+  else if (digit >= 'A' && digit <= 'F') {
+    return digit - 'A' + 10;
+  }
+  else {
+    return -1;
+  }
+}
+
+/**
+ * Converts a hex string to a byte array.
+ * This function will allocate the appropriate memory for the byte array.
+ * If a valid pointer is passed, that pointer will be reallocated. This
+ * allows the caller to reuse the same pointer through multiple calls.
+ * @param hex
+ * @param bytes
+ * @return The number of bytes decode or -1 upon error.
+ */
+ssize_t hexstring_to_new_bytes(const char *hex, unsigned char **bytes) {
+
+  if (!bytes || !hex) {
+    return -1;
+  }
+
+  size_t hex_len = strlen(hex);
+
+  if ((hex_len & 1) != 0) {
+    return -1;
+  }
+
+  size_t bytes_len = hex_len / 2;
+
+  unsigned char *tmp = realloc(*bytes, bytes_len);
+  if (!tmp) {
+    if (*bytes) {
+      free(*bytes);
+      *bytes = NULL;
+    }
+    return -1;
+  }
+
+  *bytes = tmp;
+  memset(*bytes, 0, bytes_len);
+
+  for (size_t i = 0, j = 0; i < bytes_len; i++, j += 2) {
+
+    int d1 = hex_digit_value(hex[j]);
+    int d2 = hex_digit_value(hex[j+1]);
+
+    if (d1 < 0 || d2 < 0) {
+      return -1;
+    }
+
+    (*bytes)[i] = (d1 << 4) + d2;
+  }
+
+  return bytes_len;
 }
 
 /**

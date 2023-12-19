@@ -45,6 +45,8 @@ int get_pkcs_args(int argc, char **argv, struct pkcs_arguments *args);
 
 int bytes_to_new_hexstring(char *bytes, size_t bytes_len, unsigned char **hex);
 
+ssize_t hexstring_to_new_bytes(const char *hex, unsigned char **bytes);
+
 int print_bytes_as_hex(char *bytes, size_t bytes_len);
 
 #endif
